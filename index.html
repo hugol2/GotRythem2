@@ -83,7 +83,7 @@
       .beat.is-active.tone-blue { background: #91c5f3; }
       .beat.is-active.tone-yellow { background: #f6cf66; }
       .beat.is-active.tone-red { background: #ed8176; }
-      .beat.tone-white { border: 4px solid #000000; background: #ffffff; }
+      .beat.is-active.tone-white { background: #ffffff; }
       .beat-number { color: var(--muted); font: 11px var(--mono); }
       .beat.is-active .beat-number { color: var(--ink); }
       .subdivision { display: grid; min-height: 76px; grid-template-columns: repeat(var(--parts), minmax(0, 1fr)); align-items: center; justify-items: center; gap: 2px; }
@@ -208,11 +208,11 @@
             </div>
             <div class="options-row">
               <span class="options-title">Colores</span>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-red" checked><span class="color-swatch color-red"></span>Rojo</label>
               <label class="option-label"><input type="checkbox" name="color" value="tone-green" checked><span class="color-swatch color-green"></span>Verde</label>
               <label class="option-label"><input type="checkbox" name="color" value="tone-blue" checked><span class="color-swatch color-blue"></span>Azul</label>
               <label class="option-label"><input type="checkbox" name="color" value="tone-yellow" checked><span class="color-swatch color-yellow"></span>Amarillo</label>
-              <label class="option-label"><input type="checkbox" name="color" value="tone-red" checked><span class="color-swatch color-red"></span>Rojo</label>
-              <label class="option-label"><input type="checkbox" name="color" value="tone-white" checked><span class="color-swatch" style="background:#fff"></span>Blanco · línea gruesa</label>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-white" checked><span class="color-swatch" style="background:#fff"></span>Blanco</label>
             </div>
           </div>
         </section>
