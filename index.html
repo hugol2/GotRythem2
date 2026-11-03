@@ -79,9 +79,16 @@
         transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
       }
       .beat.is-active { transform: translateY(-3px); border-color: var(--ink); background: var(--green); }
+      .beat.is-active.tone-green { background: var(--green); }
+      .beat.is-active.tone-blue { background: #91c5f3; }
+      .beat.is-active.tone-yellow { background: #f6cf66; }
+      .beat.is-active.tone-red { background: #ed8176; }
       .beat-number { color: var(--muted); font: 11px var(--mono); }
       .beat.is-active .beat-number { color: var(--ink); }
       .subdivision { display: grid; min-height: 76px; grid-template-columns: repeat(var(--parts), minmax(0, 1fr)); align-items: center; justify-items: center; gap: 2px; }
+      .subdivision.beamed { position: relative; }
+      .subdivision.double-beamed::before { position: absolute; top: 16px; right: calc(50% / var(--parts)); left: calc(50% / var(--parts)); height: 3px; border-radius: 2px; background: currentColor; content: ""; pointer-events: none; }
+      .subdivision.beamed::after { position: absolute; top: 21px; right: calc(50% / var(--parts)); left: calc(50% / var(--parts)); height: 3px; border-radius: 2px; background: currentColor; content: ""; pointer-events: none; }
       .note { display: grid; width: 100%; height: 58px; place-items: center; }
       .note svg { width: 34px; height: 48px; overflow: visible; }
       .rest svg { width: 29px; }
@@ -130,6 +137,8 @@
         .measure { gap: 5px; }
         .beat { min-height: 146px; padding: 11px 5px 9px; }
         .subdivision { min-height: 67px; }
+        .subdivision.double-beamed::before { top: 12px; }
+        .subdivision.beamed::after { top: 17px; }
         .note svg { width: 28px; }
         .beat-kind { font-size: 8px; }
         .legend { justify-content: space-between; gap: 7px; font-size: 10px; }
@@ -219,31 +228,58 @@
       const beatElements = [];
       let pattern = [];
       let audioContext;
+      let woodNoiseBuffers = [];
+      let nextWoodNoiseBuffer = 0;
       let activeSources = new Set();
       let schedulerTimer;
       let animationFrame;
       let isPlaying = false;
       let startTime = 0;
-      let totalDuration = 0;
       let events = [];
       let nextEventIndex = 0;
+      let nextRoundIndex = 1;
+      let displayedRoundIndex = 0;
+      const roundPatterns = new Map();
+      const roundColors = new Map();
+      const beatColorClasses = ["tone-green", "tone-blue", "tone-yellow", "tone-red"];
+      let previousRoundColor = null;
+
+      function chooseRoundColor(previousColor) {
+        const availableColors = beatColorClasses.filter(color => color !== previousColor);
+        return availableColors[Math.floor(Math.random() * availableColors.length)];
+      }
+
+      function applyRoundColor(color) {
+        beatElements.forEach(element => {
+          beatColorClasses.forEach(colorClass => element.classList.toggle(colorClass, colorClass === color));
+        });
+      }
 
       function makeNote(type) {
         if (type === "rest") {
           return '<span class="note rest" aria-label="Silencio de negra"><svg viewBox="0 0 32 48" aria-hidden="true"><path d="M18 5c-5 5 6 8 1 13-2 2-6 4-7 7-1 3 1 5 4 6l-3 7 3 1 4-8c1-2 0-4-2-5-2-1-3-2-1-4 2-3 8-6 7-11-.2-2-2-4-4-6l-2 2Z" fill="currentColor"/></svg></span>';
         }
-        const flags = type === "sixteenth"
-          ? '<path d="M20 9c7 2 7 6 1 10M20 13c7 2 7 6 1 10" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>'
-          : type === "eighth"
-            ? '<path d="M20 9c7 2 7 6 1 10" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>'
-            : "";
         const label = type === "quarter" ? "Negra" : type === "eighth" ? "Corchea" : "Semicorchea";
-        return `<span class="note" aria-label="${label}"><svg viewBox="0 0 32 48" aria-hidden="true"><ellipse cx="10" cy="39" rx="7" ry="4.5" transform="rotate(-20 10 39)" fill="currentColor"/><path d="M16 38V7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>${flags}</svg></span>`;
+        return `<span class="note" aria-label="${label}"><svg viewBox="0 0 32 48" aria-hidden="true"><ellipse cx="10" cy="39" rx="7" ry="4.5" transform="rotate(-20 10 39)" fill="currentColor"/><path d="M16 38V7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`;
       }
 
-      function generatePattern() {
-        const choices = ["quarter", "rest", "eighth", "sixteenth"];
-        pattern = Array.from({ length: 4 }, () => choices[Math.floor(Math.random() * choices.length)]);
+      function createPattern() {
+        const choices = ["quarter", "quarter", "quarter", "quarter", "rest", "rest", "eighth", "eighth", "eighth", "sixteenth"];
+        const choicesWithoutSixteenth = choices.slice(0, -1);
+        let sixteenthCount = 0;
+        return Array.from({ length: 4 }, () => {
+          const choice = choices[Math.floor(Math.random() * choices.length)];
+          if (choice !== "sixteenth") return choice;
+          if (sixteenthCount === 2) {
+            return choicesWithoutSixteenth[Math.floor(Math.random() * choicesWithoutSixteenth.length)];
+          }
+          sixteenthCount += 1;
+          return choice;
+        });
+      }
+
+      function renderPattern(nextPattern) {
+        pattern = nextPattern;
         beatElements.length = 0;
         measureElement.innerHTML = pattern.map((type, index) => {
           const parts = type === "eighth" ? 2 : type === "sixteenth" ? 4 : 1;
@@ -252,26 +288,31 @@
             ? makeNote("rest")
             : Array.from({ length: parts }, () => makeNote(type)).join("");
           const label = { quarter: "Negra", rest: "Silencio", eighth: "2 corcheas", sixteenth: "4 semicorcheas" }[type];
-          return `<div class="beat" data-beat="${index}" aria-label="Pulso ${index + 1}: ${label}"><span class="beat-number">0${index + 1}</span><div class="subdivision" style="--parts:${parts}">${content}</div><span class="beat-kind">${label}</span></div>`;
+          const beamed = parts === 4 ? " beamed double-beamed" : parts === 2 ? " beamed" : "";
+          return `<div class="beat" data-beat="${index}" aria-label="Pulso ${index + 1}: ${label}"><span class="beat-number">0${index + 1}</span><div class="subdivision${beamed}" style="--parts:${parts}">${content}</div><span class="beat-kind">${label}</span></div>`;
         }).join("");
         beatElements.push(...measureElement.querySelectorAll(".beat"));
       }
 
-      function buildEvents(beatDuration) {
+      function generatePattern() {
+        renderPattern(createPattern());
+      }
+
+      function buildEvents(beatDuration, roundIndex, roundPattern) {
         const result = [];
         for (let cycle = 0; cycle < 2; cycle += 1) {
           for (let beat = 0; beat < 4; beat += 1) {
-            const absoluteBeat = cycle * 4 + beat;
+            const absoluteBeat = roundIndex * 8 + cycle * 4 + beat;
             result.push({ beat: absoluteBeat, offset: absoluteBeat * beatDuration, kind: "metronome", accent: beat === 0 });
-            if (cycle === 0 && pattern[beat] !== "rest") {
-              const subdivisions = pattern[beat] === "eighth" ? 2 : pattern[beat] === "sixteenth" ? 4 : 1;
+            if (cycle === 0 && roundPattern[beat] !== "rest") {
+              const subdivisions = roundPattern[beat] === "eighth" ? 2 : roundPattern[beat] === "sixteenth" ? 4 : 1;
               for (let part = 0; part < subdivisions; part += 1) {
                 result.push({ beat: absoluteBeat, offset: (absoluteBeat + part / subdivisions) * beatDuration, kind: "woodblock" });
               }
             }
           }
         }
-        return result.sort((left, right) => left.offset - right.offset || (left.kind === "metronome" ? -1 : 1));
+        return result.sort((left, right) => left.offset - right.offset || (left.kind === right.kind ? 0 : left.kind === "metronome" ? -1 : 1));
       }
 
       function trackSource(source) {
@@ -293,32 +334,78 @@
         oscillator.stop(time + 0.05);
       }
 
-      function playWoodblock(time) {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.setValueAtTime(1780, time);
-        oscillator.frequency.exponentialRampToValueAtTime(1050, time + 0.075);
-        gain.gain.setValueAtTime(0.0001, time);
-        gain.gain.exponentialRampToValueAtTime(0.34, time + 0.002);
-        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.09);
-        oscillator.connect(gain).connect(audioContext.destination);
-        trackSource(oscillator);
-        oscillator.start(time);
-        oscillator.stop(time + 0.095);
+      function getWoodNoiseBuffer() {
+        if (woodNoiseBuffers.length === 0) {
+          const sampleCount = Math.ceil(audioContext.sampleRate * 0.03);
+          woodNoiseBuffers = Array.from({ length: 4 }, () => {
+            const buffer = audioContext.createBuffer(1, sampleCount, audioContext.sampleRate);
+            const samples = buffer.getChannelData(0);
+            for (let index = 0; index < sampleCount; index += 1) {
+              samples[index] = (Math.random() * 2 - 1) * (1 - index / sampleCount);
+            }
+            return buffer;
+          });
+        }
+        const buffer = woodNoiseBuffers[nextWoodNoiseBuffer];
+        nextWoodNoiseBuffer = (nextWoodNoiseBuffer + 1) % woodNoiseBuffers.length;
+        return buffer;
       }
 
-      function updateDisplay(timestamp) {
+      function playWoodblock(time) {
+        const transient = audioContext.createBufferSource();
+        const transientFilter = audioContext.createBiquadFilter();
+        const transientGain = audioContext.createGain();
+        transient.buffer = getWoodNoiseBuffer();
+        transientFilter.type = "bandpass";
+        transientFilter.frequency.setValueAtTime(1850, time);
+        transientFilter.Q.setValueAtTime(0.7, time);
+        transientGain.gain.setValueAtTime(0.0001, time);
+        transientGain.gain.exponentialRampToValueAtTime(0.24, time + 0.0015);
+        transientGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.025);
+        transient.connect(transientFilter).connect(transientGain).connect(audioContext.destination);
+        trackSource(transient);
+        transient.start(time);
+        transient.stop(time + 0.03);
+
+        const partials = [
+          { frequency: 520, level: 0.38, decay: 0.1 },
+          { frequency: 790, level: 0.2, decay: 0.075 }
+        ];
+        for (const partial of partials) {
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(partial.frequency * 1.04, time);
+          oscillator.frequency.exponentialRampToValueAtTime(partial.frequency, time + 0.012);
+          gain.gain.setValueAtTime(0.0001, time);
+          gain.gain.exponentialRampToValueAtTime(partial.level, time + 0.003);
+          gain.gain.exponentialRampToValueAtTime(0.0001, time + partial.decay);
+          oscillator.connect(gain).connect(audioContext.destination);
+          trackSource(oscillator);
+          oscillator.start(time);
+          oscillator.stop(time + partial.decay + 0.01);
+        }
+      }
+
+      function updateDisplay() {
         if (!isPlaying) return;
         const elapsed = Math.max(0, (audioContext.currentTime - startTime));
-        if (elapsed >= totalDuration) {
-          finishSession();
-          return;
-        }
         const beatDuration = 60 / Number(tempoInput.value);
         const absoluteBeat = Math.floor(elapsed / beatDuration);
-        const cycleIndex = Math.floor(absoluteBeat / 4);
+        const roundIndex = Math.floor(absoluteBeat / 8);
+        const cycleIndex = Math.floor((absoluteBeat % 8) / 4);
         const beatIndex = absoluteBeat % 4;
+        if (roundIndex !== displayedRoundIndex && roundPatterns.has(roundIndex)) {
+          displayedRoundIndex = roundIndex;
+          renderPattern(roundPatterns.get(roundIndex));
+          applyRoundColor(roundColors.get(roundIndex));
+          for (const queuedRound of roundPatterns.keys()) {
+            if (queuedRound < roundIndex) {
+              roundPatterns.delete(queuedRound);
+              roundColors.delete(queuedRound);
+            }
+          }
+        }
         beatElements.forEach((element, index) => element.classList.toggle("is-active", index === beatIndex));
         cycles.forEach((cycle, index) => {
           cycle.classList.toggle("is-current", index === cycleIndex);
@@ -337,23 +424,35 @@
           else playWoodblock(time);
           nextEventIndex += 1;
         }
-        if (nextEventIndex >= events.length) window.clearInterval(schedulerTimer);
+        if (nextEventIndex >= events.length) {
+          const nextPattern = createPattern();
+          roundPatterns.set(nextRoundIndex, nextPattern);
+          previousRoundColor = chooseRoundColor(previousRoundColor);
+          roundColors.set(nextRoundIndex, previousRoundColor);
+          events.push(...buildEvents(60 / Number(tempoInput.value), nextRoundIndex, nextPattern));
+          nextRoundIndex += 1;
+        }
+        if (nextEventIndex > 32) {
+          events.splice(0, nextEventIndex);
+          nextEventIndex = 0;
+        }
       }
 
-      function finishSession() {
+      function stopSession() {
         if (!isPlaying) return;
         isPlaying = false;
         window.clearInterval(schedulerTimer);
         window.cancelAnimationFrame(animationFrame);
+        activeSources.forEach(source => {
+          try { source.stop(); } catch {}
+        });
+        activeSources.clear();
         beatElements.forEach(element => element.classList.remove("is-active"));
-        cycles[0].classList.remove("is-current");
-        cycles[0].classList.add("is-done");
-        cycles[1].classList.remove("is-current");
-        cycles[1].classList.add("is-done");
+        cycles.forEach(cycle => cycle.classList.remove("is-current", "is-done"));
         startButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5-7-4.5Z" fill="currentColor"/></svg><span>Empezar</span>';
         tempoInput.disabled = false;
         newButton.disabled = false;
-        statusElement.textContent = "Práctica completada";
+        statusElement.textContent = "Práctica detenida";
       }
 
       async function startSession() {
@@ -368,13 +467,20 @@
         isPlaying = true;
         cycles.forEach(cycle => cycle.classList.remove("is-current", "is-done"));
         const beatDuration = 60 / Number(tempoInput.value);
-        totalDuration = beatDuration * 8;
         startTime = audioContext.currentTime + 0.08;
-        events = buildEvents(beatDuration);
+        events = buildEvents(beatDuration, 0, pattern);
         nextEventIndex = 0;
+        nextRoundIndex = 1;
+        displayedRoundIndex = 0;
+        roundPatterns.clear();
+        roundPatterns.set(0, pattern);
+        roundColors.clear();
+        previousRoundColor = chooseRoundColor(null);
+        roundColors.set(0, previousRoundColor);
+        applyRoundColor(previousRoundColor);
         tempoInput.disabled = true;
         newButton.disabled = true;
-        startButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5h7v7h-7z" fill="currentColor"/></svg><span>En marcha</span>';
+        startButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5h7v7h-7z" fill="currentColor"/></svg><span>Detener</span>';
         statusElement.textContent = "Escucha la figura";
         scheduleAudio();
         schedulerTimer = window.setInterval(scheduleAudio, 25);
@@ -382,7 +488,10 @@
       }
 
       tempoInput.addEventListener("input", () => { tempoValue.textContent = tempoInput.value; });
-      startButton.addEventListener("click", startSession);
+      startButton.addEventListener("click", () => {
+        if (isPlaying) stopSession();
+        else startSession();
+      });
       newButton.addEventListener("click", () => {
         if (isPlaying) return;
         generatePattern();
