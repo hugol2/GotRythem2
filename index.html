@@ -272,12 +272,58 @@
       const roundColors = new Map();
       const beatColorClasses = ["tone-green", "tone-blue", "tone-yellow", "tone-red"];
       let previousRoundColor = null;
+      let roundColorSchedule = [];
+      let roundColorScheduleIndex = 0;
+
+      function shuffle(values) {
+        const shuffled = [...values];
+        for (let index = shuffled.length - 1; index > 0; index -= 1) {
+          const otherIndex = Math.floor(Math.random() * (index + 1));
+          [shuffled[index], shuffled[otherIndex]] = [shuffled[otherIndex], shuffled[index]];
+        }
+        return shuffled;
+      }
+
+      function resetRoundColorSchedule() {
+        const selectedColors = shuffle(
+          colorInputs.filter(input => input.checked).map(input => input.value)
+        );
+        if (selectedColors.length === 0) {
+          roundColorSchedule = [];
+        }
+
+        roundColorSchedule = [];
+        selectedColors.forEach(color => roundColorSchedule.push(color));
+        let lastColor = selectedColors[selectedColors.length - 1] || previousColor;
+        while (roundColorSchedule.length < 6) {
+          const availableColors = selectedColors.filter(color => color !== lastColor);
+          const choices = availableColors.length > 0 ? availableColors : selectedColors;
+          const nextColor = choices[Math.floor(Math.random() * choices.length)];
+          roundColorSchedule.push(nextColor);
+          lastColor = nextColor;
+        }
+        roundColorScheduleIndex = 0;
+      }
 
       function chooseRoundColor(previousColor) {
         const selectedColors = colorInputs.filter(input => input.checked).map(input => input.value);
-        const availableColors = selectedColors.filter(color => color !== previousColor);
-        if (availableColors.length === 0) return selectedColors[0] || null;
-        return availableColors[Math.floor(Math.random() * availableColors.length)];
+        if (selectedColors.length === 0) return null;
+        if (roundColorScheduleIndex >= 6 || roundColorSchedule.length === 0) {
+          resetRoundColorSchedule();
+        }
+        let selectedColor = roundColorSchedule[roundColorScheduleIndex];
+        if (selectedColor === previousColor && selectedColors.length > 1) {
+          const replacementIndex = roundColorSchedule.findIndex((color, index) =>
+            index > roundColorScheduleIndex && color !== previousColor
+          );
+          if (replacementIndex >= 0) {
+            [roundColorSchedule[roundColorScheduleIndex], roundColorSchedule[replacementIndex]] =
+              [roundColorSchedule[replacementIndex], roundColorSchedule[roundColorScheduleIndex]];
+            selectedColor = roundColorSchedule[roundColorScheduleIndex];
+          }
+        }
+        roundColorScheduleIndex += 1;
+        return selectedColor;
       }
 
       function applyRoundColor(color) {
@@ -509,6 +555,7 @@
         roundPatterns.clear();
         roundPatterns.set(0, pattern);
         roundColors.clear();
+        resetRoundColorSchedule();
         previousRoundColor = chooseRoundColor(null);
         roundColors.set(0, previousRoundColor);
         applyRoundColor(previousRoundColor);
@@ -544,6 +591,10 @@
       colorInputs.forEach(input => {
         input.addEventListener("change", () => {
           if (!preventEmptySelection(colorInputs, input, "colores")) return;
+          roundColorSchedule = [];
+          roundColorScheduleIndex = 0;
+          previousRoundColor = null;
+          resetRoundColorSchedule();
           previousRoundColor = chooseRoundColor(null);
           applyRoundColor(previousRoundColor);
           statusElement.textContent = "Colores seleccionados actualizados";
