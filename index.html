@@ -101,6 +101,17 @@
       .legend-rest { font: 21px Georgia, serif; }
 
       .console { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 30px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--ink); }
+      .practice-options { margin-top: 18px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .options-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+      .options-row + .options-row { margin-top: 14px; }
+      .options-title { min-width: 82px; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
+      .option-label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 12px; }
+      .option-label input { width: 16px; height: 16px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+      .color-swatch { width: 14px; height: 14px; border: 1px solid rgb(32 38 35 / 25%); border-radius: 50%; }
+      .color-green { background: var(--green); }
+      .color-blue { background: #91c5f3; }
+      .color-yellow { background: #f6cf66; }
+      .color-red { background: #ed8176; }
       .tempo-panel { width: min(100%, 390px); }
       .tempo-row { justify-content: space-between; margin-bottom: 12px; }
       .tempo-label { font-size: 12px; font-weight: 700; }
@@ -186,6 +197,22 @@
             <span class="legend-item"><span class="legend-symbol">♪</span>Corcheas</span>
             <span class="legend-item"><span class="legend-symbol">♬</span>Semicorcheas</span>
           </div>
+          <div class="practice-options" aria-label="Opciones de práctica">
+            <div class="options-row">
+              <span class="options-title">Figuras</span>
+              <label class="option-label"><input type="checkbox" name="figure" value="quarter" checked>Negra</label>
+              <label class="option-label"><input type="checkbox" name="figure" value="rest" checked>Silencio</label>
+              <label class="option-label"><input type="checkbox" name="figure" value="eighth" checked>Corcheas</label>
+              <label class="option-label"><input type="checkbox" name="figure" value="sixteenth" checked>Semicorcheas</label>
+            </div>
+            <div class="options-row">
+              <span class="options-title">Colores</span>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-green" checked><span class="color-swatch color-green"></span>Verde</label>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-blue" checked><span class="color-swatch color-blue"></span>Azul</label>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-yellow" checked><span class="color-swatch color-yellow"></span>Amarillo</label>
+              <label class="option-label"><input type="checkbox" name="color" value="tone-red" checked><span class="color-swatch color-red"></span>Rojo</label>
+            </div>
+          </div>
         </section>
 
         <section class="console" aria-label="Controles del metrónomo">
@@ -225,6 +252,8 @@
       const newButton = document.querySelector("#new-button");
       const statusElement = document.querySelector("#status");
       const cycles = [document.querySelector("#cycle-one"), document.querySelector("#cycle-two")];
+      const figureInputs = [...document.querySelectorAll('input[name="figure"]')];
+      const colorInputs = [...document.querySelectorAll('input[name="color"]')];
       const beatElements = [];
       let pattern = [];
       let audioContext;
@@ -245,7 +274,9 @@
       let previousRoundColor = null;
 
       function chooseRoundColor(previousColor) {
-        const availableColors = beatColorClasses.filter(color => color !== previousColor);
+        const selectedColors = colorInputs.filter(input => input.checked).map(input => input.value);
+        const availableColors = selectedColors.filter(color => color !== previousColor);
+        if (availableColors.length === 0) return selectedColors[0] || null;
         return availableColors[Math.floor(Math.random() * availableColors.length)];
       }
 
@@ -264,13 +295,14 @@
       }
 
       function createPattern() {
-        const choices = ["quarter", "quarter", "quarter", "quarter", "rest", "rest", "eighth", "eighth", "eighth", "sixteenth"];
-        const choicesWithoutSixteenth = choices.slice(0, -1);
+        const choices = figureInputs.filter(input => input.checked).map(input => input.value);
         let sixteenthCount = 0;
         return Array.from({ length: 4 }, () => {
           const choice = choices[Math.floor(Math.random() * choices.length)];
           if (choice !== "sixteenth") return choice;
           if (sixteenthCount === 2) {
+            const choicesWithoutSixteenth = choices.filter(value => value !== "sixteenth");
+            if (choicesWithoutSixteenth.length === 0) return "sixteenth";
             return choicesWithoutSixteenth[Math.floor(Math.random() * choicesWithoutSixteenth.length)];
           }
           sixteenthCount += 1;
@@ -452,6 +484,8 @@
         startButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5-7-4.5Z" fill="currentColor"/></svg><span>Empezar</span>';
         tempoInput.disabled = false;
         newButton.disabled = false;
+        figureInputs.forEach(input => { input.disabled = false; });
+        colorInputs.forEach(input => { input.disabled = false; });
         statusElement.textContent = "Práctica detenida";
       }
 
@@ -480,6 +514,8 @@
         applyRoundColor(previousRoundColor);
         tempoInput.disabled = true;
         newButton.disabled = true;
+        figureInputs.forEach(input => { input.disabled = true; });
+        colorInputs.forEach(input => { input.disabled = true; });
         startButton.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5h7v7h-7z" fill="currentColor"/></svg><span>Detener</span>';
         statusElement.textContent = "Escucha la figura";
         scheduleAudio();
@@ -488,6 +524,31 @@
       }
 
       tempoInput.addEventListener("input", () => { tempoValue.textContent = tempoInput.value; });
+      function preventEmptySelection(inputs, changedInput, selectionName) {
+        const checkedInputs = inputs.filter(input => input.checked);
+        if (checkedInputs.length === 0) {
+          changedInput.checked = true;
+          statusElement.textContent = `Mantén al menos una opción de ${selectionName}`;
+          return false;
+        }
+        return true;
+      }
+
+      figureInputs.forEach(input => {
+        input.addEventListener("change", () => {
+          if (!preventEmptySelection(figureInputs, input, "figuras")) return;
+          generatePattern();
+          statusElement.textContent = "Figuras seleccionadas actualizadas";
+        });
+      });
+      colorInputs.forEach(input => {
+        input.addEventListener("change", () => {
+          if (!preventEmptySelection(colorInputs, input, "colores")) return;
+          previousRoundColor = chooseRoundColor(null);
+          applyRoundColor(previousRoundColor);
+          statusElement.textContent = "Colores seleccionados actualizados";
+        });
+      });
       startButton.addEventListener("click", () => {
         if (isPlaying) stopSession();
         else startSession();
